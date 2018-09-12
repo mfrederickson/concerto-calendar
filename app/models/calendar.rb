@@ -9,7 +9,7 @@ class Calendar < DynamicContent
       attr_accessor :name, :description, :location, :start_time, :end_time
 
       def initialize(name, description, location, start_time, end_time)
-        @name=name
+        @name = name
         @description = description
         @location = location
         @start_time = start_time
@@ -237,10 +237,16 @@ class Calendar < DynamicContent
     items.each do |item|
       start_time = item.start_time.strftime(time_format)
       end_time = item.end_time.strftime(time_format) unless item.end_time.nil?
+      description = item.description
+      if description.respond_to?(:join) # is_a?(Array)
+        description = item.description.join(' ')
+      end
 
-      html << item_template.gsub('#{title}', item.name).gsub('#{date}', item.start_time.strftime(day_format)).gsub('#{time}', (end_time.nil? || start_time == end_time) ? start_time : "#{start_time} - #{end_time}").gsub('#{location}', item.location)
-      ######################################## TODO BUGGY!!!
-      #.gsub('#{description}', item.description.present? ? item.description : '')
+      html << item_template.gsub('#{title}', item.name)
+        .gsub('#{date}', item.start_time.strftime(day_format))
+        .gsub('#{time}', (end_time.nil? || start_time == end_time) ? start_time : "#{start_time} - #{end_time}")
+        .gsub('#{location}', item.location)
+        .gsub('#{description}', description)
     end
     return html.join("")
   end
@@ -263,7 +269,7 @@ class Calendar < DynamicContent
             start_time = item.start_time.strftime(time_format)
             end_time = item.end_time.strftime(time_format) unless item.end_time.nil?
 
-            html << "<div class='event-time'>" + (end_time.nil? || start_time == end_time ? start_time : "#{start_time} - #{end_time}") + "</div>"
+            html << "<div class='event-time'>" + (end_time.nil? || start_time == end_time ? start_time : "#{start_time}-#{end_time}") + "</div>"
             html << "<div class='event-title'>#{item.name}</div> <div class='event-description'>#{item.description}</div> <div class='event-location'>#{item.location}</div>"
           html << "</li>"
         end
