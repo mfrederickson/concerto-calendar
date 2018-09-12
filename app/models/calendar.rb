@@ -36,7 +36,9 @@ class Calendar < DynamicContent
 
   DISPLAY_FORMATS = { 
     "List (Multiple)" => "headlines", 
-    "Detailed (Single)" => "detailed" 
+    "List (Custom)" => "custom_list", 
+    "Detailed (Single)" => "detailed",
+    'Detailed List' => 'detailed_list'
   }
   CALENDAR_SOURCES = { # exclude RSS and ATOM since cant get individual fields
     "Google" => "google", 
@@ -70,6 +72,23 @@ class Calendar < DynamicContent
           htmltext.data = "<h1>#{result.name}</h1>#{items_to_html(items, day_format, time_format)}"
           contents << htmltext
         end
+      when 'custom_list' # 5 items per entry, titles only
+        result.items.each_slice(5).with_index do |items, index|
+          htmltext = HtmlText.new()
+          htmltext.name = "#{result.name} (#{index+1})"
+          # heredoc terminator enclosed in singlequotes to prevent interpolation
+          item_template = <<-'EOT'
+            <div class="event">
+              <div class="event-title">#{title}</div>
+              <div class="event-date">#{date}</div>
+              <div class="event-time">#{time}</div>
+              <div class="event-location">#{location}</div>
+              <div class="event-description">#{description}</div>
+            </div>
+          EOT
+          htmltext.data = "<div class='cal cal-custom-list'><h1 class='content-name'>#{result.name}</h1>#{items_to_custom_html(items, day_format, time_format, item_template)}</div>"
+          contents << htmltext
+        end
       when 'detailed' # each item is a separate entry, title and description
         result.items.each_with_index do |item, index|
           htmltext = HtmlText.new()
@@ -77,6 +96,11 @@ class Calendar < DynamicContent
           htmltext.data = item_to_html(item, day_format, time_format)
           contents << htmltext
         end
+      when 'detailed_list' # all items in one entry, with details (and classes for css)
+        htmltext = HtmlText.new()
+        htmltext.name = result.name
+        htmltext.data = items_to_list_html(result.items, day_format, time_format)
+        contents << htmltext
       else
         raise ArgumentError, 'Unexpected output format for Calendar feed.'
       end
@@ -90,17 +114,17 @@ class Calendar < DynamicContent
     client_key = self.config['api_key']
     calendar_id = self.config['calendar_id']
     calendar_source = self.config['calendar_source']
-    start_date = self.config['start_date'].strip.empty? ? Clock.time.beginning_of_day.iso8601 : self.config['start_date'].to_time.beginning_of_day.iso8601
+    start_date = self.config['start_date'].strip.empty? ? Clock.time.beginning_of_day : self.config['start_date'].to_time.beginning_of_day
     # end_date is not used by the google api, as the resulting behavior is unexpected
-    end_date = self.config['end_date'].strip.empty? ? (start_date.to_time.beginning_of_day + self.config['days_ahead'].to_i.days).end_of_day.iso8601 : self.config['end_date'].to_time.beginning_of_day.iso8601
+    end_date = self.config['end_date'].strip.empty? ? (start_date.to_time.beginning_of_day + self.config['days_ahead'].to_i.days).end_of_day : self.config['end_date'].to_time.end_of_day
 
     case calendar_source
     when 'google'
       if !client_key.empty?
         # ---------------------------------- google calendar api v3 via client api
-	require 'google/apis/calendar_v3'
+	      require 'google/apis/calendar_v3'
 
-	client = Google::Apis::CalendarV3::CalendarService.new
+	      client = Google::Apis::CalendarV3::CalendarService.new
         client.key = client_key
         
         begin
@@ -108,7 +132,7 @@ class Calendar < DynamicContent
                                  max_results: self.config['max_results'],
                                  single_events: true,
                                  order_by: 'startTime',
-                                 time_min: start_date)
+                                 time_min: start_date.iso8601)
 
         # convert to common data structure
         #result.error_message = tmp.error_message if tmp.error?
@@ -131,35 +155,25 @@ class Calendar < DynamicContent
         # so respect self.config[max_results] and start_date and end_date (which incorporates the days ahead)
         require 'open-uri'
         require 'icalendar'
+        require 'icalendar/recurrence'
 
         begin
           url = self.config['calendar_url']
           calendars = nil
           open(URI.parse(url)) do |cal|
-            calendars = Icalendar.parse(cal)
+            calendars = Icalendar::Calendar.parse(cal)
           end
 
           max_results = self.config['max_results'].to_i
-          result.name =  self.name    # iCal doesn't provide a calendar name, so use the user's provided name
+          result.name = self.name    # iCal doesn't provide a calendar name, so use the user's provided name
+
           calendars.first.events.each do |item|
             title = item.summary
             description = item.description
             location = item.location
-            # behave a little differently depending on whether or not our iCal has a timezone defined
-            # this behavior is somewhat lazy/sloppy in that we're assuming the existence of a defined timezone means
-            # that times are local ('correct'), whereas the absence of a timezone means the data is
-            # likely in UTC/Zulu time
-            if calendars.first.has_timezone?
-              item_start_time = item.dtstart.to_datetime unless item.dtstart.nil?
-              item_end_time = item.dtend.to_datetime unless item.dtend.nil?
-            else
-              item_start_time = Time.zone.parse(item.dtstart.to_s).to_datetime unless item.dtstart.nil?
-              item_end_time = Time.zone.parse(item.dtend.to_s).to_datetime unless item.dtend.nil?
-            end
-            item_end_time = nil if item_end_time == item_start_time
-            # make sure the item's start date is within the specified range
-            if item_start_time >= start_date && item_start_time < end_date
-              result.add_item(title, description, location, item_start_time, item_end_time)
+
+            item.occurrences_between(start_date, end_date).each do |occurrence|
+              result.add_item(title, description, location, occurrence.start_time.in_time_zone(Time.zone), occurrence.end_time.in_time_zone(Time.zone))
             end
 
           end
@@ -217,6 +231,49 @@ class Calendar < DynamicContent
     return html.join("")
   end
 
+  # display date (only when it changes) / times with title...
+  def items_to_custom_html(items, day_format, time_format, item_template)
+    html = []
+    items.each do |item|
+      start_time = item.start_time.strftime(time_format)
+      end_time = item.end_time.strftime(time_format) unless item.end_time.nil?
+
+      html << item_template.gsub('#{title}', item.name).gsub('#{date}', item.start_time.strftime(day_format)).gsub('#{time}', (end_time.nil? || start_time == end_time) ? start_time : "#{start_time} - #{end_time}").gsub('#{location}', item.location)
+      ######################################## TODO BUGGY!!!
+      #.gsub('#{description}', item.description.present? ? item.description : '')
+    end
+    return html.join("")
+  end
+
+  # list format
+  def items_to_list_html(items, day_format, time_format)
+    html = []
+    # wrap the whole thing so users can style it
+    html << "<ul class='cal cal-#{self.config['output_format'].strip.parameterize} cal-#{self.name.strip.parameterize}'>"
+    # each day is an li
+    days = items.group_by{|e| e.start_time.to_date}
+    days.each do |day|
+      html << "<li class='event-date'>"
+        html << "<h2>#{day.first.strftime(day_format)}</h2>"
+
+        html << "<ul class='events'>"
+        day.last.each do |item|
+          html << "<li>"
+            # todo: end time should include date if different
+            start_time = item.start_time.strftime(time_format)
+            end_time = item.end_time.strftime(time_format) unless item.end_time.nil?
+
+            html << "<div class='event-time'>" + (end_time.nil? || start_time == end_time ? start_time : "#{start_time} - #{end_time}") + "</div>"
+            html << "<div class='event-title'>#{item.name}</div> <div class='event-description'>#{item.description}</div> <div class='event-location'>#{item.location}</div>"
+          html << "</li>"
+        end
+        html << "</ul>"
+      html << "</li>"
+    end
+    html << "</ul>"
+    return html.join("")
+  end
+  
   # calendar api parameters and preferred view (output_format)
   def self.form_attributes
     attributes = super()

@@ -19,6 +19,7 @@ Gem::Specification.new do |s|
 
   s.add_dependency "rails"
   s.add_dependency "google-api-client", "~> 0.9"
-  s.add_dependency "icalendar"
+  s.add_dependency "icalendar", '~> 2.5'
+  s.add_dependency "icalendar-recurrence", '~> 1.1.2'
 
 end
