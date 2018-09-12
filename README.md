@@ -136,3 +136,5 @@ li.event-date h2 {
   padding-left: 3em;
 }
 ```
+
+You add the CSS to your template in Concerto by uploading the .css file when you edit your template.
