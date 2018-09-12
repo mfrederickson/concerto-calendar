@@ -89,5 +89,14 @@
         <%= config.select :output_format, Calendar::DISPLAY_FORMATS, :selected => @content.config['output_format'] %>
       </div>
     </div>
+
+    <div class="clearfix">
+      <%= config.label :item_template, "Item Template (for applicable display formats)" %>
+      <div class="input">
+        <%= config.text_area :item_template, placeholder:"Item Template", value: @content.config['item_template'], rows: 6 %>
+        <div><i>Specify custom HTML or leave blank for default template. Denote the following fields as #{fieldname} in your markup: title, date, time, location, description.</i></div>
+      </div>
+    </div>
+
 </fieldset>
 <% end %>

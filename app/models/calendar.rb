@@ -1,6 +1,6 @@
 class Calendar < DynamicContent
-  after_initialize :set_defaults, :on => :new
-  validate :validate_config, :on => :create
+  after_initialize :set_defaults, on: :new
+  validate :validate_config, on: :create
 
   # this is the common class used for holding the content to be rendered
   # it is populated from the various calendar sources
@@ -35,16 +35,16 @@ class Calendar < DynamicContent
   end
 
   DISPLAY_FORMATS = { 
-    "List (Multiple)" => "headlines", 
-    "List (Custom)" => "custom_list", 
-    "Detailed (Single)" => "detailed",
-    'Detailed List' => 'detailed_list'
-  }
+    "List (Groups of 5)" => "headlines", 
+    'List (Events by Day)' => 'detailed_list',
+    "List (Custom Template, Groups of 5)" => "custom_list", 
+    "Detailed (Custom Template, Single)" => "detailed" 
+  }.freeze
+
   CALENDAR_SOURCES = { # exclude RSS and ATOM since cant get individual fields
     "Google" => "google", 
     "iCal" => "ical", 
-#    "Bedework JSON" => "bedeworkjson" 
-  }  
+  }.freeze
 
   def set_defaults
     self.config['calendar_source'] ||= 'ical'
@@ -63,6 +63,7 @@ class Calendar < DynamicContent
     else
       day_format = self.config['day_format']
       time_format = self.config['time_format']
+      item_template = self.config['item_template']
 
       case self.config['output_format']
       when 'headlines' # 5 items per entry, titles only
@@ -72,20 +73,22 @@ class Calendar < DynamicContent
           htmltext.data = "<h1>#{result.name}</h1>#{items_to_html(items, day_format, time_format)}"
           contents << htmltext
         end
-      when 'custom_list' # 5 items per entry, titles only
+      when 'custom_list' # 5 items per entry, whatever they dont want can be hidden via css
         result.items.each_slice(5).with_index do |items, index|
           htmltext = HtmlText.new()
           htmltext.name = "#{result.name} (#{index+1})"
-          # heredoc terminator enclosed in singlequotes to prevent interpolation
-          item_template = <<-'EOT'
-            <div class="event">
-              <div class="event-title">#{title}</div>
-              <div class="event-date">#{date}</div>
-              <div class="event-time">#{time}</div>
-              <div class="event-location">#{location}</div>
-              <div class="event-description">#{description}</div>
-            </div>
-          EOT
+          if item_template.blank?
+            # heredoc terminator enclosed in singlequotes to prevent interpolation
+            item_template = <<-'EOT'
+              <div class="event">
+                <div class="event-title">#{title}</div>
+                <div class="event-date">#{date}</div>
+                <div class="event-time">#{time}</div>
+                <div class="event-location">#{location}</div>
+                <div class="event-description">#{description}</div>
+              </div>
+            EOT
+          end
           htmltext.data = "<div class='cal cal-custom-list'><h1 class='content-name'>#{result.name}</h1>#{items_to_custom_html(items, day_format, time_format, item_template)}</div>"
           contents << htmltext
         end
@@ -93,10 +96,22 @@ class Calendar < DynamicContent
         result.items.each_with_index do |item, index|
           htmltext = HtmlText.new()
           htmltext.name = "#{result.name} (#{index+1})"
-          htmltext.data = item_to_html(item, day_format, time_format)
+          if item_template.blank?
+            # heredoc terminator enclosed in singlequotes to prevent interpolation
+            item_template = <<-'EOT'
+              <div class="event">
+                <h1 class="event-title">#{title}</h1>
+                <h2 class="event-date">#{date}</h2>
+                <div class="event-time cal-time">#{time}</div>
+                <div class="event-location cal-location">#{location}</div>
+                <div class="event-description"><p>#{description}</p></div>
+              </div>
+            EOT
+          end
+          htmltext.data = items_to_custom_html([item], day_format, time_format, item_template)
           contents << htmltext
         end
-      when 'detailed_list' # all items in one entry, with details (and classes for css)
+      when 'detailed_list' # all items in one entry, list of days, each day has list of events
         htmltext = HtmlText.new()
         htmltext.name = result.name
         htmltext.data = items_to_list_html(result.items, day_format, time_format)
@@ -189,19 +204,6 @@ class Calendar < DynamicContent
     return result
   end
 
-  def item_to_html(item, day_format, time_format)
-    start_time = item.start_time.strftime(time_format)
-    end_time = item.end_time.strftime(time_format) unless item.end_time.nil?
-
-    html = []
-    html << "<h1>#{item.name}</h1>"
-    html << "<h2>#{item.start_time.strftime(day_format)}</h2>" 
-    html << (end_time.nil? || start_time == end_time ? "<div class=\"cal-time\">#{start_time}</div>" : "<div class=\"cal-time\">#{start_time} - #{end_time}</div>")
-    html << "<div class=\"cal-location\">#{item.location}</div>"
-    html << "<p>#{item.description}</p>"
-    return html.join("")
-  end
-
   # display date (only when it changes) / times with title...
   def items_to_html(items, day_format, time_format)
     html = []
@@ -214,17 +216,17 @@ class Calendar < DynamicContent
         else
           html << "</dl>"
         end
-        html << "<h2>#{item.start_time.strftime(day_format)}</h2>"
-        html << "<dl>"
+        html << "<h2 class='event-date'>#{item.start_time.strftime(day_format)}</h2>"
+        html << "<dl class='events'>"
       end
       # todo: end time should include date if different
       start_time = item.start_time.strftime(time_format)
       end_time = item.end_time.strftime(time_format) unless item.end_time.nil?
 
-      html << (end_time.nil? || start_time == end_time ? "<dt>#{start_time}</dt>" : "<dt>#{start_time} - #{end_time}</dt>")
+      html << (end_time.nil? || start_time == end_time ? "<dt class='event-time'>#{start_time}</dt>" : "<dt class='event-time'>#{start_time} - #{end_time}</dt>")
       # if the item we're evaluating isn't a DateTime, it's a full-day event
-      html << (item.start_time.is_a?(DateTime) ? "" : "<dt>Time N/A</dt>")
-      html << "<dd>#{item.name}</dd>"
+      # html << (item.start_time.is_a?(DateTime) ? "" : "<dt>Time N/A</dt>")
+      html << "<dd class='event-title'> #{item.name}</dd>"
       last_date = item.start_time.to_date
     end
     html << "</dl>" if !last_date.nil?
@@ -254,8 +256,8 @@ class Calendar < DynamicContent
   # list format
   def items_to_list_html(items, day_format, time_format)
     html = []
-    # wrap the whole thing so users can style it
-    html << "<ul class='cal cal-#{self.config['output_format'].strip.parameterize} cal-#{self.name.strip.parameterize}'>"
+    # include name as class name for ability to individually style calendar
+    html << "<ul class='cal cal-detailed-list cal-#{self.name.strip.dasherize.parameterize}'>"
     # each day is an li
     days = items.group_by{|e| e.start_time.to_date}
     days.each do |day|
@@ -283,7 +285,7 @@ class Calendar < DynamicContent
   # calendar api parameters and preferred view (output_format)
   def self.form_attributes
     attributes = super()
-    attributes.concat([:config => [
+    attributes.concat([config: [
       :calendar_source, # google or ical (or bedework JSON eventually)
       :api_key,         # google
       :calendar_id,     # google
@@ -294,7 +296,8 @@ class Calendar < DynamicContent
       :end_date,
       :output_format,   # all cals
       :day_format,      # all cals
-      :time_format      # all cals
+      :time_format,     # all cals
+      :item_template
     ]])
   end
 
