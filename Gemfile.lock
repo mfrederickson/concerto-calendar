@@ -1,9 +1,10 @@
 PATH
   remote: .
   specs:
-    concerto_calendar (0.0.9)
+    concerto_calendar (0.1.0)
       google-api-client (~> 0.9)
-      icalendar
+      icalendar (~> 2.5)
+      icalendar-recurrence (~> 1.1.2)
       rails
 
 GEM
@@ -86,6 +87,9 @@ GEM
       concurrent-ruby (~> 1.0)
     icalendar (2.5.0)
       ice_cube (~> 0.16)
+    icalendar-recurrence (1.1.2)
+      icalendar (~> 2.0)
+      ice_cube (~> 0.13)
     ice_cube (0.16.3)
     jwt (1.5.6)
     little-plugger (1.1.4)
