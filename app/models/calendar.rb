@@ -80,33 +80,35 @@ class Calendar < DynamicContent
           if item_template.blank?
             # heredoc terminator enclosed in singlequotes to prevent interpolation
             item_template = <<-'EOT'
-              <div class="event">
-                <div class="event-title">#{title}</div>
-                <div class="event-date">#{date}</div>
-                <div class="event-time">#{time}</div>
-                <div class="event-location">#{location}</div>
-                <div class="event-description">#{description}</div>
-              </div>
-            EOT
+<div class="event">
+  <div class="event-title">#{title}</div>
+  <div class="event-date">#{date}</div>
+  <div class="event-time">#{time}</div>
+  <div class="event-location">#{location}</div>
+  <div class="event-description">#{description}</div>
+</div>
+EOT
           end
           htmltext.data = "<div class='cal cal-custom-list'><h1 class='content-name'>#{result.name}</h1>#{items_to_custom_html(items, day_format, time_format, item_template)}</div>"
           contents << htmltext
         end
+
       when 'detailed' # each item is a separate entry, title and description
         result.items.each_with_index do |item, index|
           htmltext = HtmlText.new()
           htmltext.name = "#{result.name} (#{index+1})"
           if item_template.blank?
             # heredoc terminator enclosed in singlequotes to prevent interpolation
+            # large spacing causes problems-- thinks its <PRE> or something
             item_template = <<-'EOT'
-              <div class="event">
-                <h1 class="event-title">#{title}</h1>
-                <h2 class="event-date">#{date}</h2>
-                <div class="event-time cal-time">#{time}</div>
-                <div class="event-location cal-location">#{location}</div>
-                <div class="event-description"><p>#{description}</p></div>
-              </div>
-            EOT
+<div class="event">
+  <h1 class="event-title">#{title}</h1>
+  <h2 class="event-date">#{date}</h2>
+  <div class="event-time cal-time">#{time}</div>
+  <div class="event-location cal-location">#{location}</div>
+  <div class="event-description"><p>#{description}</p></div>
+</div>
+EOT
           end
           htmltext.data = items_to_custom_html([item], day_format, time_format, item_template)
           contents << htmltext
@@ -216,17 +218,17 @@ class Calendar < DynamicContent
         else
           html << "</dl>"
         end
-        html << "<h2 class='event-date'>#{item.start_time.strftime(day_format)}</h2>"
+        html << "<h2 class='event-date'>" + ERB::Util.html_escape(item.start_time.strftime(day_format)) + "</h2>"
         html << "<dl class='events'>"
       end
       # todo: end time should include date if different
       start_time = item.start_time.strftime(time_format)
       end_time = item.end_time.strftime(time_format) unless item.end_time.nil?
 
-      html << (end_time.nil? || start_time == end_time ? "<dt class='event-time'>#{start_time}</dt>" : "<dt class='event-time'>#{start_time} - #{end_time}</dt>")
+      html << (end_time.nil? || start_time == end_time ? "<dt class='event-time'>#{ERB::Util.html_escape(start_time)}</dt>" : "<dt class='event-time'>#{ERB::Util.html_escape(start_time)} - #{ERB::Util.html_escape(end_time)}</dt>")
       # if the item we're evaluating isn't a DateTime, it's a full-day event
       # html << (item.start_time.is_a?(DateTime) ? "" : "<dt>Time N/A</dt>")
-      html << "<dd class='event-title'> #{item.name}</dd>"
+      html << "<dd class='event-title'> #{ERB::Util.html_escape(item.name)}</dd>"
       last_date = item.start_time.to_date
     end
     html << "</dl>" if !last_date.nil?
@@ -244,11 +246,11 @@ class Calendar < DynamicContent
         description = item.description.join(' ')
       end
 
-      html << item_template.gsub('#{title}', item.name)
-        .gsub('#{date}', item.start_time.strftime(day_format))
-        .gsub('#{time}', (end_time.nil? || start_time == end_time) ? start_time : "#{start_time} - #{end_time}")
-        .gsub('#{location}', item.location)
-        .gsub('#{description}', description)
+      html << item_template.gsub('#{title}', ERB::Util.html_escape(item.name))
+        .gsub('#{date}', ERB::Util.html_escape(item.start_time.strftime(day_format)))
+        .gsub('#{time}', ERB::Util.html_escape((end_time.nil? || start_time == end_time) ? start_time : "#{start_time} - #{end_time}"))
+        .gsub('#{location}', ERB::Util.html_escape(item.location))
+        .gsub('#{description}', ERB::Util.html_escape(description))
     end
     return html.join("")
   end
@@ -261,8 +263,8 @@ class Calendar < DynamicContent
     # each day is an li
     days = items.group_by{|e| e.start_time.to_date}
     days.each do |day|
-      html << "<li class='event-date'>"
-        html << "<h2>#{day.first.strftime(day_format)}</h2>"
+      html << "<li>"
+        html << "<h2 class='event-date'>#{ERB::Util.html_escape(day.first.strftime(day_format))}</h2>"
 
         html << "<ul class='events'>"
         day.last.each do |item|
@@ -271,8 +273,8 @@ class Calendar < DynamicContent
             start_time = item.start_time.strftime(time_format)
             end_time = item.end_time.strftime(time_format) unless item.end_time.nil?
 
-            html << "<div class='event-time'>" + (end_time.nil? || start_time == end_time ? start_time : "#{start_time}-#{end_time}") + "</div>"
-            html << "<div class='event-title'>#{item.name}</div> <div class='event-description'>#{item.description}</div> <div class='event-location'>#{item.location}</div>"
+            html << "<div class='event-time'>" + ERB::Util.html_escape((end_time.nil? || start_time == end_time ? start_time : "#{start_time}-#{end_time}")) + "</div>"
+            html << "<div class='event-title'>#{ERB::Util.html_escape(item.name)}</div> <div class='event-description'>#{ERB::Util.html_escape(item.description)}</div> <div class='event-location'>#{ERB::Util.html_escape(item.location)}</div>"
           html << "</li>"
         end
         html << "</ul>"
